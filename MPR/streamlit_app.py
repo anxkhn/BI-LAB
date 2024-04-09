@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import warnings
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
@@ -12,131 +13,106 @@ from sklearn.ensemble import (
     GradientBoostingClassifier,
 )
 from xgboost import XGBClassifier
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.metrics import classification_report
 
+# Suppress warnings
 warnings.filterwarnings("ignore")
 
+# Load the dataset
+url = "https://raw.githubusercontent.com/anxkhn/BI-LAB/main/MPR/Placement_Data.csv"
+df = pd.read_csv(url)
 
-# Load data
-@st.cache_data
-def load_data():
-    url = "https://raw.githubusercontent.com/anxkhn/BI-LAB/main/MPR/Placement_Data.csv"
-    df = pd.read_csv(url)
-    return df
+# Data preprocessing
+df.drop(["sl_no", "ssc_b", "hsc_b"], axis=1, inplace=True)
+le = LabelEncoder()
+lst = ["gender", "hsc_s", "degree_t", "workex", "specialisation", "status"]
+for i in lst:
+    df[i] = le.fit_transform(df[i])
+df["salary"] = df["salary"].fillna(df["salary"].mode()[0])
+X = df.iloc[:, :10]
+y = df.iloc[:, -2]
+ms = MinMaxScaler()
+X_sc = ms.fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_sc, y, test_size=0.2, random_state=1
+)
 
-
-# Preprocess data
-def preprocess_data(df):
-    df1 = df.copy()
-    df1.drop(["sl_no", "ssc_b", "hsc_b"], axis=1, inplace=True)
-    le = LabelEncoder()
-    lst = ["gender", "hsc_s", "degree_t", "workex", "specialisation", "status"]
-    for i in lst:
-        df1[i] = le.fit_transform(df1[i])
-    df1["salary"] = df1["salary"].fillna(df1["salary"].mode()[0])
-    X = df1.iloc[:, :10]
-    y = df1.iloc[:, -2]
-    ms = MinMaxScaler()
-    X_sc = ms.fit_transform(X)
-    return X_sc, y
-
+# Oversampling
+sm = RandomOverSampler()
+X_train_sm, y_train_sm = sm.fit_resample(X_train, y_train)
 
 # Train models
-def train_models(X, y):
-    knn = KNeighborsClassifier(n_neighbors=5)
-    knn.fit(X, y)
+models = {
+    "K Neighbors Classifier": KNeighborsClassifier(n_neighbors=5),
+    "Support Vector Classifier": SVC(),
+    "Naive Bayes": GaussianNB(),
+    "Decision Tree": DecisionTreeClassifier(criterion="gini", random_state=1),
+    "Random Forest": RandomForestClassifier(n_estimators=100, random_state=1),
+    "AdaBoost": AdaBoostClassifier(),
+    "Gradient Boosting": GradientBoostingClassifier(),
+    "XG Boost": XGBClassifier(),
+}
 
-    svc = SVC()
-    svc.fit(X, y)
-
-    nb = GaussianNB()
-    nb.fit(X, y)
-
-    dt = DecisionTreeClassifier(criterion="gini", random_state=1)
-    dt.fit(X, y)
-
-    rf = RandomForestClassifier(n_estimators=100, random_state=1)
-    rf.fit(X, y)
-
-    ad = AdaBoostClassifier()
-    ad.fit(X, y)
-
-    gb = GradientBoostingClassifier()
-    gb.fit(X, y)
-
-    xgb = XGBClassifier()
-    xgb.fit(X, y)
-
-    return knn, svc, nb, dt, rf, ad, gb, xgb
-
+for model_name, model in models.items():
+    model.fit(X_train_sm, y_train_sm)
 
 # Streamlit app
-def main():
-    st.title("Placement Prediction App")
-    st.sidebar.title("Model Selection")
+st.title("Placement Prediction App")
 
-    # Load data
-    df = load_data()
+# User input
+st.sidebar.subheader("User Input")
+gender = st.sidebar.radio("Gender", ["Male", "Female"])
+ssc_p = st.sidebar.slider("SSC percentage", min_value=0.0, max_value=100.0, value=0.0)
+hsc_p = st.sidebar.slider("HSC percentage", min_value=0.0, max_value=100.0, value=0.0)
+hsc_s = st.sidebar.selectbox("HSC specialization", ["Arts", "Commerce", "Science"])
+degree_p = st.sidebar.slider(
+    "Degree percentage", min_value=0.0, max_value=100.0, value=0.0
+)
+degree_t = st.sidebar.selectbox(
+    "Degree type", ["Others", "Sci&Tech", "Comm&Mgmt", "Arts"]
+)
+workex = st.sidebar.selectbox("Work experience", ["No", "Yes"])
+etest_p = st.sidebar.slider(
+    "Employability test percentage", min_value=0.0, max_value=100.0, value=0.0
+)
+specialisation = st.sidebar.selectbox("Specialization", ["Mkt&Fin", "HR", "Others"])
+mba_p = st.sidebar.slider("MBA percentage", min_value=0.0, max_value=100.0, value=0.0)
 
-    # Data preprocessing
-    X, y = preprocess_data(df)
+# Preprocess user input
+gender = 1 if gender == "Female" else 0
+hsc_s = ["Arts", "Commerce", "Science"].index(hsc_s)
+degree_t = ["Others", "Sci&Tech", "Comm&Mgmt", "Arts"].index(degree_t)
+workex = 1 if workex == "Yes" else 0
+specialisation = ["Mkt&Fin", "HR", "Others"].index(specialisation)
 
-    # Train models
-    knn, svc, nb, dt, rf, ad, gb, xgb = train_models(X, y)
+# Create input dataframe
+input_df = pd.DataFrame(
+    {
+        "gender": [gender],
+        "ssc_p": [ssc_p],
+        "hsc_p": [hsc_p],
+        "hsc_s": [hsc_s],
+        "degree_p": [degree_p],
+        "degree_t": [degree_t],
+        "workex": [workex],
+        "etest_p": [etest_p],
+        "specialisation": [specialisation],
+        "mba_p": [mba_p],
+    }
+)
 
-    # User input for new data
-    st.sidebar.subheader("Input New Data")
-    gender = st.sidebar.radio("Gender", ["Male", "Female"])
-    ssc_p = st.sidebar.slider("SSC Percentage", 0.0, 100.0, 50.0)
-    hsc_p = st.sidebar.slider("HSC Percentage", 0.0, 100.0, 50.0)
-    hsc_s = st.sidebar.selectbox("HSC Stream", ["Commerce", "Science", "Arts"])
-    degree_p = st.sidebar.slider("Degree Percentage", 0.0, 100.0, 50.0)
-    degree_t = st.sidebar.selectbox("Degree Type", ["Comm&Mgmt", "Sci&Tech", "Others"])
-    workex = st.sidebar.radio("Work Experience", ["Yes", "No"])
-    etest_p = st.sidebar.slider("Employability Test Percentage", 0.0, 100.0, 50.0)
-    specialisation = st.sidebar.selectbox("MBA Specialization", ["Mkt&HR", "Mkt&Fin"])
+# Encode categorical columns
+input_df["gender"] = le.fit_transform(input_df["gender"])
+input_df["hsc_s"] = le.fit_transform(input_df["hsc_s"])
+input_df["degree_t"] = le.fit_transform(input_df["degree_t"])
+input_df["specialisation"] = le.fit_transform(input_df["specialisation"])
 
-    # Convert user input into dataframe
-    input_data = pd.DataFrame(
-        {
-            "gender": [1 if gender == "Male" else 0],
-            "ssc_p": [ssc_p],
-            "hsc_p": [hsc_p],
-            "hsc_s": [0 if hsc_s == "Commerce" else (1 if hsc_s == "Science" else 2)],
-            "degree_p": [degree_p],
-            "degree_t": [
-                0 if degree_t == "Comm&Mgmt" else (1 if degree_t == "Sci&Tech" else 2)
-            ],
-            "workex": [1 if workex == "Yes" else 0],
-            "etest_p": [etest_p],
-            "specialisation": [1 if specialisation == "Mkt&HR" else 0],
-            "mba_p": [0.0],  # Placeholder for 'mba_p' as it's not provided by user
-        }
-    )
+# Scale the input data
+input_scaled = ms.transform(input_df)
 
-    # Make predictions
-    st.subheader("Placement Predictions for Input Data")
-    for model, clf in zip(
-        [
-            "K Neighbors Classifier",
-            "Support Vector Classifier",
-            "Naive Bayes",
-            "Decision Tree",
-            "Random Forest",
-            "AdaBoost",
-            "Gradient Boosting",
-            "XGBoost",
-        ],
-        [knn, svc, nb, dt, rf, ad, gb, xgb],
-    ):
-        prediction = clf.predict(input_data)
-        prediction_text = "Placed" if prediction[0] == 1 else "Not Placed"
-        color = "green" if prediction[0] == 1 else "red"
-        st.write(
-            f'<span style="color:{color}">{model}: {prediction_text}</span>',
-            unsafe_allow_html=True,
-        )
-
-
-if __name__ == "__main__":
-    main()
+# Predict
+st.subheader("Prediction Results:")
+for model_name, model in models.items():
+    prediction = model.predict(input_scaled)
+    st.write(f"{model_name}: {'Placed' if prediction[0] == 1 else 'Not Placed'}")
